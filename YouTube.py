@@ -7,7 +7,7 @@ from datetime import datetime
 
 #Youtube API key connection
 def api_connect():
-    api_key = "AIzaSyBkJZSRN3M4BKVO2m17edCaL6D6zy_1Dak"  # Replace with your actual API key
+    api_key = "AIzaSyBkJZSRN3M4BKVO2m17edCaL6D6zy_1Dak"  # Replace with your API key
     api_service_name = "youtube"
     api_version = "v3"
     youtube = build(api_service_name, api_version, developerKey=api_key)
@@ -78,7 +78,10 @@ def get_comment_info(channel_id):
     video_ids = []
     youtube = api_connect()
     try:
-        request = youtube.search().list(part='snippet', channelId=channel_id, type='video', maxResults=50)
+        request = youtube.search().list(part='snippet', 
+                                        channelId=channel_id, 
+                                        type='video', 
+                                        maxResults=50)
         response = request.execute()
 
         for item in response['items']:
@@ -86,7 +89,9 @@ def get_comment_info(channel_id):
 
         for video_id in video_ids:
             try:
-                request = youtube.commentThreads().list(part='snippet', videoId=video_id, maxResults=50)
+                request = youtube.commentThreads().list(part='snippet', 
+                                                        videoId=video_id, 
+                                                        maxResults=50)
                 response = request.execute()
                 for item in response['items']:
                     data = {
