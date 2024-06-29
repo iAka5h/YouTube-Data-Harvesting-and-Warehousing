@@ -1,4 +1,4 @@
-# Youtube-Data-Harvesting
+# Youtube Data Harvesting and Warehousing
 ## PROBLEM STATEMENT:  
    To develop a Streamlit application that enables users to obtain and examine data from numerous YouTube channels is the stated problem. Using the Youtube API to extract data and then converting it to a table in MySQL for obtaining different information about YouTube channels.
 
