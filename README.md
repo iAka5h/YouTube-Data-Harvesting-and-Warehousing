@@ -25,5 +25,5 @@
 
 7.Run the Application: Launch the Streamlit application using the command-line interface.  
 
-## CONCLUSION
+## CONCLUSION:
 The YouTube Data Harvesting and Warehousing initiative offers a powerful tool for gathering, storing, and analyzing YouTube channel and video data. By utilizing SQL and Streamlit, users can quickly access and modify YouTube data through a user-friendly interface. This project enables users to gain insights from the vast amount of available YouTube data by providing flexibility, scalability, and data visualization capabilities.   
