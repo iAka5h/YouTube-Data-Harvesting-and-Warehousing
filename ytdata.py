@@ -1,331 +1,454 @@
+import streamlit as st
+import pandas as pd
 from googleapiclient.discovery import build
 import mysql.connector
-import json
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import streamlit as st
+from datetime import datetime
+import time
+import datetime
+import isodate
 
-# SQL Connection
-mydb = mysql.connector.connect(
-    host="localhost",
-    port="3306",
-    user="root",
-    password="admin@123",
-    database="ytdata"
-)
-
-cursor = mydb.cursor()
-
-# API key Connection
-def api_connection():
-    api_key = "AIzaSyBkJZSRN3M4BKVO2m17edCaL6D6zy_1Dak"
+# Function to connect API key
+def api_connect():
+    api_key = "AIzaSyBkJZSRN3M4BKVO2m17edCaL6D6zy_1Dak"  # Replace with your actual API key
     api_service_name = "youtube"
     api_version = "v3"
-
     youtube = build(api_service_name, api_version, developerKey=api_key)
     return youtube
 
-yt_call = api_connection()
+# Function to get database connection
+def get_database_connection():
+    conn = mysql.connector.connect(
+        host="localhost",
+        user="root",  
+        password="admin@123",  
+        port=3306,
+        database = 'youtube')
+    return conn
 
-# Get Channel Information
-def Channel_Info(channel_id):
-    cursor.execute("""CREATE TABLE IF NOT EXISTS channel_info (
-                        channel_name VARCHAR(255),
-                        channel_id VARCHAR(255),
-                        subscribe INT,
-                        views INT,
-                        total_videos INT,
-                        channel_description TEXT
-                    )""")
-    
-    request = yt_call.channels().list(
-        part="snippet,contentDetails,statistics",
-        id=channel_id
-    )
+# Function to create database
+def create_database():
+    conn = get_database_connection()
+    mycursor = conn.cursor()
+    mycursor.execute('CREATE DATABASE IF NOT EXISTS youtube_data')
+    mycursor.close()
+    conn.close()
+
+# Function to get channel details
+def get_channel_details(c_id):
+    youtube = api_connect()
+    request = youtube.channels().list(part="snippet,status,contentDetails,statistics", id=c_id)
     response = request.execute()
-    
-    for item in response.get('items', []):
-        details = dict(Channel_Name=item['snippet']['title'],
-                       Channel_Id=item['id'],
-                       Subscribers=item['statistics']['subscriberCount'],
-                       Views=item['statistics']['viewCount'],
-                       Total_Videos=item['statistics']['videoCount'],
-                       Channel_Description=item['snippet']['description'])
-    
-        cursor.execute("INSERT INTO channel_info (channel_name, channel_id, subscribe, views, total_videos, channel_description) VALUES (%s, %s, %s, %s, %s, %s)",
-                       (details['Channel_Name'], 
-                        details['Channel_Id'], 
-                        details['Subscribers'], 
-                        details['Views'], 
-                        details['Total_Videos'], 
-                        details['Channel_Description']))
-        
-        mydb.commit()
-    return details
+    data = {}
+    for i in response["items"]:
+        data = {
+            'channel_id': i["id"],
+            'channel_name': i['snippet']['title'],
+            'channel_views': i['statistics']['viewCount'],
+            'channel_description': i['snippet']['description'],
+            'channel_status': i['status']['privacyStatus']
+        }
+    return data
 
-# Get Video Id
-def Get_Video_Id(video_id):
-    Video_ID = []
-    response = yt_call.channels().list(id=video_id,
-                                       part='contentDetails').execute()
+# Function to get video information
+def get_video_info(channel_id):
+    video_data = []
+    youtube = api_connect()
+    next_page_token = None
 
-    Playlist_ID = response['items'][0]['contentDetails']['relatedPlaylists']['uploads']
-    Next_Page_Token = None
-
-    while True:
-        request_1 = yt_call.playlistItems().list(
-            part='snippet',
-            playlistId=Playlist_ID,
-            maxResults=50,
-            pageToken=Next_Page_Token).execute()
-        for i in range(len(request_1['items'])):
-            Video_ID.append(request_1['items'][i]['snippet']['resourceId']['videoId'])
-        Next_Page_Token = request_1.get('nextPageToken')
-
-        if Next_Page_Token is None:
-            break
-      
-    return Video_ID
-
-# Get Video Details
-def parse_duration(duration_str):
     try:
-        duration_seconds = int(duration_str[2:-1])
-        return duration_seconds
-    except ValueError:
-        return None
-
-def Get_Video_Details(Video_id):
-    Video_List = []
-    for v_id in Video_id:
-        request = yt_call.videos().list(
-            part="snippet,contentDetails,statistics",
-            id=v_id
-        )
-        response = request.execute()
-
-        cursor.execute("""CREATE TABLE IF NOT EXISTS video_details(
-                    channel_name VARCHAR(255),
-                    channel_id VARCHAR(255),
-                    video_id VARCHAR(255),
-                    title TEXT,
-                    tags TEXT,
-                    thumbnail TEXT,
-                    description TEXT,
-                    published_date DATETIME,
-                    duration TIME,
-                    views INT,
-                    likes INT,
-                    dislikes INT,
-                    comments INT
-                )""")
-
-        for item in response['items']:
-            Data = dict(
-                channel_Name=item['snippet']['channelTitle'],
-                Channel_Id=item['snippet']['channelId'],
-                Video_Id=item['id'],
-                Title=item['snippet']['title'],
-                Tags=json.dumps(item.get('tags')),
-                Thumbnail=json.dumps(item['snippet']['thumbnails']),
-                Description=item['snippet'].get('description', ''),
-                Publish_Date=item['snippet']['publishedAt'],
-                Duration=item['contentDetails']['duration'],
-                Views=item['statistics'].get('viewCount', 0),
-                Likes=item['statistics'].get('likeCount', 0),
-                Dislikes=item['statistics'].get('dislikeCount'),
-                Comments=item['statistics'].get('commentCount', 0)
-            )
-            
-            Video_List.append(Data)
-
-            duration_seconds = parse_duration(Data['Duration'])
-            if duration_seconds is not None:
-               duration = timedelta(seconds=duration_seconds)
-            else:
-               duration = timedelta(seconds=0) 
-            current_datetime = datetime.now()
-            updated_datetime = current_datetime + duration
-            sql_duration = updated_datetime.strftime('%Y-%m-%d %H:%M:%S')
-
-            iso_datetime = Data['Publish_Date']
-            parsed_datetime = datetime.fromisoformat(iso_datetime.replace('Z', '+00:00'))
-            mysql_published_date = parsed_datetime.strftime('%Y-%m-%d %H:%M:%S')
-
-            cursor.execute("INSERT INTO video_details(channel_name, channel_id, video_id, title, tags, thumbnail, description, published_date, duration, views, likes, dislikes, comments) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s)",
-                           (Data['channel_Name'], 
-                            Data['Channel_Id'], 
-                            Data['Video_Id'], 
-                            Data['Title'], 
-                            Data['Tags'], 
-                            Data['Thumbnail'], 
-                            Data['Description'], 
-                            mysql_published_date, 
-                            sql_duration, Data['Views'], 
-                            Data['Likes'], 
-                            Data['Dislikes'], 
-                            Data['Comments']))
-
-            mydb.commit()        
-    return Video_List
-
-# Get Comment Details
-def get_comment_Details(get_Comment):
-    comment_List = []
-    try:
-        cursor.execute("""CREATE TABLE IF NOT EXISTS comment_details (
-                            comment_id VARCHAR(255),
-                            video_id VARCHAR(255),
-                            comment_text TEXT,
-                            author VARCHAR(255),
-                            published_date DATETIME
-                        )""")
-        for Com_Det in get_Comment:
-            request = yt_call.commentThreads().list(
-                part="snippet",
-                videoId=Com_Det,
-                maxResults=50
+        while True:
+            # Fetch the next page of search results
+            request = youtube.search().list(
+                part='snippet',
+                channelId=channel_id,
+                type='video',
+                maxResults=50,
+                pageToken=next_page_token
             )
             response = request.execute()
 
-            for item in response['items']:
-                Comment_Det = dict(Comment_ID=item['snippet']['topLevelComment']['id'],
-                                   Video_Id=item['snippet']['topLevelComment']['snippet']['videoId'],
-                                   Comment_Text=item['snippet']['topLevelComment']['snippet']['textDisplay'],
-                                   Author_Name=item['snippet']['topLevelComment']['snippet']['authorDisplayName'],
-                                   Published_Date=item['snippet']['topLevelComment']['snippet']['publishedAt'])
-                    
-                comment_List.append(Comment_Det)
+            video_ids = [item['id']['videoId'] for item in response['items']]
 
-                iso_datetime = Comment_Det['Published_Date']
-                parsed_datetime = datetime.fromisoformat(iso_datetime.replace('Z', '+00:00'))
-                mysql_published_dates = parsed_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            # Fetch video details for the current page of video IDs
+            if video_ids:
+                request = youtube.videos().list(
+                    part='snippet,contentDetails,statistics',
+                    id=','.join(video_ids)
+                )
+                video_response = request.execute()
 
-                cursor.execute("INSERT INTO comment_details (comment_id, video_id, comment_text, author, published_date) VALUES (%s, %s, %s, %s,%s)",
-                               (Comment_Det['Comment_ID'], 
-                                Comment_Det['Video_Id'], 
-                                Comment_Det['Comment_Text'], 
-                                Comment_Det['Author_Name'], 
-                                mysql_published_dates))
-                mydb.commit()
-                    
+                for item in video_response['items']:
+                    data = {
+                        'channel_name': item['snippet']['channelTitle'],
+                        'channel_id': item['snippet']['channelId'],
+                        'video_id': item['id'],
+                        'video_name': item['snippet']['title'],
+                        'video_description': item['snippet'].get('description', ''),
+                        'published_date': item['snippet']['publishedAt'],
+                        'views_count': item['statistics'].get('viewCount', 0),
+                        'likes_count': item['statistics'].get('likeCount', 0),
+                        'favorite_count': item['statistics'].get('favoriteCount', 0),
+                        'comment_count': item['statistics'].get('commentCount', 0),
+                        'duration': convert_duration( item['contentDetails']['duration']),
+                        'thumbnails': item['snippet']['thumbnails'],
+                        'caption_status': item['contentDetails']['caption']
+                    }
+                    video_data.append(data)
+
+            # Check if there is a next page token
+            next_page_token = response.get('nextPageToken')
+            if not next_page_token:
+                break
+
     except Exception as e:
-        print(f"Error: {e}")
-         
-    return comment_List
+        st.error(f"Error fetching video data: {e}")
 
-# Overall Function to get details
-def fetch_all_data(channel_id):
-    channel_info = Channel_Info(channel_id)
-    video_ids = Get_Video_Id(channel_id)
-    video_details = Get_Video_Details(video_ids)
-    comment_details = get_comment_Details(video_ids)
+    return video_data
+# Function to get comment information
+def get_comment_info(channel_id):
+    comment_data = []
+    video_ids = []  # Initialize video_ids list
+    youtube = api_connect()
+    try:
+        request = youtube.search().list(part='snippet', channelId=channel_id, type='video', maxResults=50)
+        response = request.execute()
 
-    df_channel_info = pd.DataFrame([channel_info])
-    df_video_details = pd.DataFrame(video_details)
-    df_comment_details = pd.DataFrame(comment_details)
+        for item in response['items']:
+            video_ids.append(item['id']['videoId'])
 
-    return df_channel_info, df_video_details, df_comment_details
+        for video_id in video_ids:
+            request = youtube.commentThreads().list(part='snippet', videoId=video_id, maxResults=50)
+            response = request.execute()
+            for item in response['items']:
+                data = {
+                    'comment_id': item['snippet']['topLevelComment']['id'],
+                    'video_id': item['snippet']['topLevelComment']['snippet']['videoId'],
+                    'comment_text': item['snippet']['topLevelComment']['snippet']['textDisplay'],
+                    'comment_author': item['snippet']['topLevelComment']['snippet']['authorDisplayName'],
+                    'comment_published': item['snippet']['topLevelComment']['snippet']['publishedAt'],
+                    'channel_id': item['snippet']['topLevelComment']['snippet']['channelId']
+                }
+                comment_data.append(data)
+    except Exception as e:
+        print("Error:", e)
+    return comment_data
 
-# Main Function
-def main():
-    st.title("YouTube Data Harvesting and Warehousing")
+# Convert ISO datetime string to datetime object
+def convert_iso_to_datetime(iso_str):
+    return datetime.datetime.strptime(iso_str, '%Y-%m-%dT%H:%M:%SZ')
 
-    menu = ["Home", "Queries"]
-    choice = st.sidebar.selectbox("Menu", menu)
+# Convert YouTube duration format (ISO 8601) to HH:MM:SS format
+import re
 
-    if choice == "Home":
-        st.subheader("Home")
-        channel_id = st.text_input("Enter Channel ID")
-        if st.button("Fetch Details"):
-            df_channel_info, df_video_details, df_comment_details = fetch_all_data(channel_id)
-            st.success("Data Harvested Successfully")
-            st.write("Channel Info")
-            st.dataframe(df_channel_info)
-            st.write("Video Details")
-            st.dataframe(df_video_details)
-            st.write("Comment Details")
-            st.dataframe(df_comment_details)
+def convert_duration(duration):
+    total_seconds = 0
+    time_str = duration.replace('PT', '')
+    if 'H' in time_str:
+        hours, time_str = time_str.split('H')
+        total_seconds += int(hours) * 3600
+    if 'M' in time_str:
+        minutes, time_str = time_str.split('M')
+        total_seconds += int(minutes) * 60
+    if 'S' in time_str:
+        seconds = time_str.split('S')[0]
+        total_seconds += int(seconds)
+    return f"{total_seconds // 3600:02}:{(total_seconds % 3600) // 60:02}:{total_seconds % 60:02}"
 
-    elif choice == "Queries":
-        st.subheader("Queries")
-        query = st.selectbox("Select Query", [
-            "1. What are the names of all the videos and their corresponding channels?",
-            "2. Which top 10 videos have the highest number of likes and what are their corresponding channel names?",
-            "3. What are the top 10 most viewed videos and their respective channel names?",
-            "4. How many comments were made on each video, and what are their corresponding video names?",
-            "5. Which videos have the highest number of comments and what are their corresponding channel names?",
-            "6. What is the total number of likes and dislikes for each video, and what are their corresponding video names?",
-            "7. What is the total number of views for each channel, and what are their corresponding channel names?",
-            "8. What are the names of all the channels that have published videos in the year 2022?",
-            "9. What is the average duration of all videos in each channel, and what are their corresponding channel names?",
-            "10. Which videos have the highest number of comments, and what are their corresponding channel names?"
-        ])
+# Function to create table
+def create_tables(mycursor):
+    mycursor.execute("""
+    CREATE TABLE IF NOT EXISTS channel (
+        channel_id VARCHAR(255) PRIMARY KEY,
+        channel_name VARCHAR(255),
+        channel_views INT,
+        channel_description TEXT,
+        channel_status VARCHAR(255)
+    )
+    """)
 
-        if st.button("Run Query"):
-            if query == "1. What are the names of all the videos and their corresponding channels?":
-                cursor.execute("SELECT title, channel_name FROM video_details")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Video Title', 'Channel Name'])
-                st.dataframe(df)
+    mycursor.execute("""
+    CREATE TABLE IF NOT EXISTS video (
+        video_id VARCHAR(255) PRIMARY KEY,
+        channel_id VARCHAR(255),
+        video_name VARCHAR(255),
+        video_description TEXT,
+        published_date DATETIME,
+        views_count INT,
+        likes_count INT,
+        favorite_count INT,
+        comment_count INT,
+        duration VARCHAR(255),
+        thumbnails TEXT,
+        caption_status VARCHAR(255),
+        FOREIGN KEY (channel_id) REFERENCES channel(channel_id)
+    )
+    """)
 
-            elif query == "2. Which top 10 videos have the highest number of likes and what are their corresponding channel names?":
-                cursor.execute("SELECT title, channel_name, likes FROM video_details ORDER BY likes DESC LIMIT 10")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Video Title', 'Channel Name', 'Likes'])
-                st.dataframe(df)
+    mycursor.execute("""
+    CREATE TABLE IF NOT EXISTS comment (
+        comment_id VARCHAR(255) PRIMARY KEY,
+        video_id VARCHAR(255),
+        comment_text TEXT,
+        comment_author VARCHAR(255),
+        comment_published DATETIME,
+        channel_id VARCHAR(255),
+        FOREIGN KEY (video_id) REFERENCES video(video_id),
+        FOREIGN KEY (channel_id) REFERENCES channel(channel_id)
+    )
+    """)
 
-            elif query == "3. What are the top 10 most viewed videos and their respective channel names?":
-                cursor.execute("SELECT title, channel_name, views FROM video_details ORDER BY views DESC LIMIT 10")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Video Title', 'Channel Name', 'Views'])
-                st.dataframe(df)
+def data_already_exists(cursor, df_channel):
+    channel_id = df_channel.iloc[0]['channel_id']
+    cursor.execute("SELECT COUNT(*) FROM channel WHERE channel_id = %s", (channel_id,))
+    return cursor.fetchone()[0] > 0
 
-            elif query == "4. How many comments were made on each video, and what are their corresponding video names?":
-                cursor.execute("SELECT title, comments FROM video_details")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Video Title', 'Comments'])
-                st.dataframe(df)
+def push_to_mysql(df_channel, df_video, df_comment):
+    conn = None
+    mycursor = None
+    success_message_shown = False  
+    try:
+        create_database()
+        conn = get_database_connection()
+        mycursor = conn.cursor()
+        create_tables(mycursor)
 
-            elif query == "5. Which videos have the highest number of comments and what are their corresponding channel names?":
-                cursor.execute("SELECT title, channel_name, comments FROM video_details ORDER BY comments DESC LIMIT 10")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Video Title', 'Channel Name', 'Comments'])
-                st.dataframe(df)
-                
-            elif query == "6. What is the total number of likes and dislikes for each video, and what are their corresponding video names?":
-                cursor.execute("SELECT title, likes, dislikes FROM video_details")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Video Title', 'Likes', 'Dislikes'])
-                st.dataframe(df)
+        if data_already_exists(mycursor, df_channel):
+            st.warning("Same data already transferred.")
+            return
+        # Insert channel data
+        for index, row in df_channel.iterrows():
+            mycursor.execute("""
+            INSERT INTO channel (channel_id, channel_name, channel_views, channel_description, channel_status)
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+            channel_name = VALUES(channel_name),
+            channel_views = VALUES(channel_views),
+            channel_description = VALUES(channel_description),
+            channel_status = VALUES(channel_status)
+            """, (row['channel_id'], row['channel_name'], row['channel_views'], row['channel_description'], row['channel_status']))
+        # Insert video data
+        for index, row in df_video.iterrows():
+            published_date = convert_iso_to_datetime(row['published_date'])
+            mycursor.execute("""
+            INSERT INTO video (video_id, channel_id, video_name, video_description, published_date, views_count, likes_count, favorite_count, comment_count, duration, thumbnails, caption_status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+            channel_id = VALUES(channel_id),
+            video_name = VALUES(video_name),
+            video_description = VALUES(video_description),
+            published_date = VALUES(published_date),
+            views_count = VALUES(views_count),
+            likes_count = VALUES(likes_count),
+            favorite_count = VALUES(favorite_count),
+            comment_count = VALUES(comment_count),
+            duration = VALUES(duration),
+            thumbnails = VALUES(thumbnails),
+            caption_status = VALUES(caption_status)
+            """, (row['video_id'], row['channel_id'], row['video_name'], row['video_description'], published_date, row['views_count'], row['likes_count'], row['favorite_count'], row['comment_count'], row['duration'], str(row['thumbnails']), row['caption_status']))
 
-            elif query == "7. What is the total number of views for each channel, and what are their corresponding channel names?":
-                cursor.execute("SELECT channel_name, SUM(views) as total_views FROM video_details GROUP BY channel_name")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Channel Name', 'Total Views'])
-                st.dataframe(df)
+        # Insert comment data only if video_id exists in the video table
+        for index, row in df_comment.iterrows():
+            mycursor.execute("SELECT COUNT(*) FROM video WHERE video_id = %s", (row['video_id'],))
+            if mycursor.fetchone()[0] > 0:
+                comment_published = convert_iso_to_datetime(row['comment_published'])
+                mycursor.execute("""
+                INSERT INTO comment (comment_id, video_id, comment_text, comment_author, comment_published, channel_id)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                video_id = VALUES(video_id),
+                comment_text = VALUES(comment_text),
+                comment_author = VALUES(comment_author),
+                comment_published = VALUES(comment_published),
+                channel_id = VALUES(channel_id)
+                """, (row['comment_id'], row['video_id'], row['comment_text'], row['comment_author'], comment_published, row['channel_id']))
 
-            elif query == "8. What are the names of all the channels that have published videos in the year 2022?":
-                cursor.execute("SELECT DISTINCT channel_name FROM video_details WHERE YEAR(published_date) = 2022")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Channel Name'])
-                st.dataframe(df)
+        conn.commit()
+        success_message_shown = True  
+    except mysql.connect.Error as err:
+        st.error(f"Error: {err}")
+    finally:
+        if mycursor:
+            mycursor.close()
+        if conn:
+            conn.close()
+        if success_message_shown:  
+            st.success("Data pushed to MySQL successfully.")
 
-            elif query == "9. What is the average duration of all videos in each channel, and what are their corresponding channel names?":
-                cursor.execute("SELECT channel_name, AVG(duration) as avg_duration FROM video_details GROUP BY channel_name")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Channel Name', 'Average Duration'])
-                st.dataframe(df)
 
-            elif query == "10. Which videos have the highest number of comments, and what are their corresponding channel names?":
-                cursor.execute("SELECT title, channel_name, comments FROM video_details ORDER BY comments DESC LIMIT 10")
-                results = cursor.fetchall()
-                df = pd.DataFrame(results, columns=['Video Title', 'Channel Name', 'Comments'])
-                st.dataframe(df)
 
-if __name__ == '__main__':
-    main()
+# Streamli interface
 
-cursor.close()
-mydb.close()
+create_database()
+
+st.sidebar.subheader('Home')
+menu = ['Data Harvesting and Warehousing', 'QueryData']
+choice = st.sidebar.radio("Select an option", menu)
+
+if choice == 'Data Harvesting and Warehousing':
+    st.title(':white[YouTube Data Harvesting & Warehousing]')
+
+    channel_id = st.text_input("Enter your Channel ID", key='channel_id_input')
+
+    if st.button('Get Channel Data', key='get_channel_data'):
+        if not channel_id:
+            st.warning("Please enter a Channel ID.")
+        else:
+            result_channel = get_channel_details(channel_id)
+            if result_channel:
+                st.session_state.df_channel = pd.DataFrame([result_channel])
+                st.write("Channel Details:")
+                st.write(st.session_state.df_channel)
+            else:
+                st.warning("No channel details found.")
+
+            result_video = get_video_info(channel_id)
+            if result_video:
+                st.session_state.df_video = pd.DataFrame(result_video)
+                st.write("Video Data:")
+                st.write(st.session_state.df_video)
+            else:
+                st.warning("No video data found.")
+
+            result_comment = get_comment_info(channel_id)
+            if result_comment:
+                st.session_state.df_comment = pd.DataFrame(result_comment)
+                st.write('Comment Data')
+                st.write(st.session_state.df_comment)
+            else:
+                st.write('No Comment Data Found')
+
+    if st.button('Push data to MySQL', key='push_data_to_mysql'):
+        if 'df_channel' in st.session_state and 'df_video' in st.session_state and 'df_comment' in st.session_state:
+            push_to_mysql(st.session_state.df_channel, st.session_state.df_video, st.session_state.df_comment)
+        else:
+            st.warning("No data to push. Please get channel data first.")
+            
+elif choice == 'QueryData':
+
+    def execute_query(query):
+        conn = get_database_connection()
+        mycursor = conn.cursor()  
+        mycursor.execute(query)
+        result = mycursor.fetchall()
+        mycursor.close()
+        conn.close()
+        return result
+
+    st.title(':white[Select the Question]')      
+
+    selected_query = st.selectbox("Select a question", [
+    "1. What are the names of all the videos and their corresponding channels?",
+    "2. Which channels have the most number of videos, and how many videos do they have?",
+    "3. What are the top 10 most viewed videos and their respective channels?",
+    "4. How many comments were made on each video, and what are their corresponding video names?",
+    "5. Which videos have the highest number of likes, and what are their corresponding channel names?",
+    "6. What is the total number of likes and dislikes for each video, and what are their corresponding video names?",
+    "7. What is the total number of views for each channel, and what are their corresponding channel names?",
+    "8. What are the names of all the channels that have published videos in the year 2022?",
+    "9. What is the average duration of all videos in each channel, and what are their corresponding channel names?",
+    "10. Which videos have the highest number of comments, and what are their corresponding channel names?"
+])
+
+    if selected_query:
+        if selected_query.startswith("1."):
+            query = """
+            SELECT v.video_name, c.channel_name
+            FROM video v
+            JOIN channel c ON v.channel_id = c.channel_id
+            """
+            column_names = ["Video Name", "Channel Name"]
+
+        elif selected_query.startswith("2."):
+            query = """
+            SELECT c.channel_name, COUNT(*) AS num_videos
+            FROM video v
+            JOIN channel c ON v.channel_id = c.channel_id
+            GROUP BY c.channel_name
+            ORDER BY num_videos DESC
+            """
+            column_names = ["Channel Name", "Number of Videos"]
+
+        elif selected_query.startswith("3."):
+            query = """
+            SELECT v.video_name, v.views_count, c.channel_name
+            FROM video v
+            JOIN channel c ON v.channel_id = c.channel_id
+            ORDER BY v.views_count DESC
+            LIMIT 10
+            """
+            column_names = ["Video Name", "Views", "Channel Name"]
+
+        elif selected_query.startswith("4."):
+            query = """
+            SELECT v.video_name, COUNT(*) AS num_comments
+            FROM comment co
+            JOIN video v ON co.video_id = v.video_id
+            GROUP BY v.video_name
+            """
+            column_names = ["Video Name", "Number of Comments"]
+
+        elif selected_query.startswith("5."):
+            query = """
+            SELECT v.video_name, v.likes_count, c.channel_name
+            FROM video v
+            JOIN channel c ON v.channel_id = c.channel_id
+            ORDER BY v.likes_count DESC
+            LIMIT 10
+            """
+            column_names = ["Video Name", "Likes", "Channel Name"]
+
+        elif selected_query.startswith("6."):
+            query = """
+            SELECT v.video_name, SUM(v.likes_count) AS total_likes
+            FROM video v
+            GROUP BY v.video_name
+            """
+            column_names = ["Video Name", "Total Likes"]
+
+        elif selected_query.startswith("7."):
+            query = """
+            SELECT c.channel_name, SUM(v.views_count) AS total_views
+            FROM video v
+            JOIN channel c ON v.channel_id = c.channel_id
+            GROUP BY c.channel_name
+            """
+            column_names = ["Channel Name", "Total Views"]
+
+        elif selected_query.startswith("8."):
+            query = """
+            SELECT DISTINCT c.channel_name
+            FROM video v
+            JOIN channel c ON v.channel_id = c.channel_id
+            WHERE YEAR(v.published_date) = 2022
+            """
+            column_names = ["Channel Name"]
+
+        elif selected_query.startswith("9."):
+            query = """
+            SELECT c.channel_name, TIME_FORMAT(SEC_TO_TIME(AVG(TIME_TO_SEC(v.duration))), '%H:%i:%s') AS avg_video_duration
+                FROM video v
+                JOIN channel c ON v.channel_id = c.channel_id
+                GROUP BY c.channel_name
+                ORDER BY avg_video_duration DESC;
+            """
+            column_names = ["Channel Name", "Average Duration"]
+
+        elif selected_query.startswith("10."):
+            query = """
+            SELECT v.video_name, v.comment_count, c.channel_name
+            FROM video v
+            JOIN channel c ON v.channel_id = c.channel_id
+            ORDER BY v.comment_count DESC
+            LIMIT 10
+            """
+            column_names = ["Video Name", "Comments", "Channel Name"]
+
+        # Execute the query
+        result_data = execute_query(query)
+
+        # Display the results
+        if result_data:
+            df = pd.DataFrame(result_data, columns=column_names)
+            st.dataframe(df)
+        else:
+            st.warning("No data available for the selected query.")
