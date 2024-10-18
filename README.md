@@ -1,4 +1,4 @@
-# Project Title: YouTube Data Harvesting and Warehousing
+# YouTube Data Harvesting and Warehousing
 
 ![png (3)](https://github.com/user-attachments/assets/00dadd9b-e975-4708-a5e8-b7b1142dbe2e)
 
