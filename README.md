@@ -52,29 +52,6 @@ Before you begin, ensure you have met the following requirements:
 
 3. Follow the on-screen instructions to fetch and visualize YouTube data.
 
-## Contributing
-
-We welcome contributions! To contribute, please follow these steps:
-
-1. Fork the project.
-2. Create your feature branch:
-    ```bash
-    git checkout -b feature/YourFeature
-    ```
-3. Commit your changes:
-    ```bash
-    git commit -m 'Add some feature'
-    ```
-4. Push to the branch:
-    ```bash
-    git push origin feature/YourFeature
-    ```
-5. Open a Pull Request.
-
-## License
-
-This project is licensed under the Guvi IIT-M Pravartak. See the [LICENSE](https://docs.google.com/document/d/1WrMDf4KnzprK37EJLr3QW0wRUB3few-1Yujv6wnYhZw/edit?tab=t.0) file for details.
-
 ## Acknowledgments
 
 - [YouTube Data API](https://developers.google.com/youtube/v3)
@@ -86,8 +63,8 @@ This project is licensed under the Guvi IIT-M Pravartak. See the [LICENSE](https
 For any inquiries, feel free to reach out:
 
 - **Your Name**: [martakash99@gmail.com](mailto:martakash99@gmail.com)
-- **LinkedIn**: [Your LinkedIn Profile](https://linkedin.com/iAka5h)
-- **GitHub**: [Your GitHub Profile](https://github.com/iAka5h)
+- **LinkedIn**: [iAka5h](https://linkedin.com/iAka5h)
+- **GitHub**: [iAka5h](https://github.com/iAka5h)
 
 ---
 
