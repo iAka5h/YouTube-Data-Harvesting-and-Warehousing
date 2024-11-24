@@ -29,8 +29,7 @@ Before you begin, ensure you have met the following requirements:
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/YouTube-Data-Harvesting.git
-    cd YouTube-Data-Harvesting
+    https://github.com/iAka5h/YouTube-Data-Harvesting-and-Warehousing.git
     ```
 
 2. Install the required packages:
